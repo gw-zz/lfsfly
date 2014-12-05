@@ -1,0 +1,62 @@
+#!/bin/bash -e
+
+. /usr/share/LFSPkg/LFSFunctions
+
+PKGNAME="kbd"
+VERSION="2.0.2"
+BUILD=2
+SECTION="SYSTEM"
+SUFFIX="LFSPKG"
+TARNAME="$PKGNAME"
+TARBALL="${TARNAME}-${VERSION}.tar.gz"
+
+mkdir -p "/tmp" &>/dev/null||true
+if [ ! -d "$OUTPUT" ];then
+	OUTPUT=/tmp
+fi
+export OUTPUT
+PKG="${OUTPUT}/${PKGNAME}"
+
+DOWHAT=${1:-"build"}
+rm -rf "$PKG" || true
+mkdir -p "$PKG"
+tar -xvf "$TARBALL"
+
+pushd "${TARNAME}-${VERSION}"
+	patch -Np1 -i ../${TARNAME}-${VERSION}-backspace-1.patch
+	sed -i 's/\(RESIZECONS_PROGS=\)yes/\1no/g' configure
+	sed -i 's/resizecons.8 //' docs/man/man8/Makefile.in
+	#PKG_CONFIG_PATH=/tools/lib/pkgconfig ./configure --prefix=/usr --datadir=/lib/${PKGNAME} --disable-vlock
+	PKG_CONFIG_PATH=/tools/lib/pkgconfig ./configure --prefix=/usr --disable-vlock
+	make $MAKEFLAGS || exit
+	make $MAKEFLAGS install DESTDIR="$PKG" || exit
+	# useful ?
+	#mkdir -vp $PKG/bin || exit
+	#mv -v $PKG/usr/bin/{kbd_mode,loadkeys,openvt,setfont} $PKG/bin
+	mkdir -vp $PKG/usr/share/doc/kbd-${VERSION}
+	cp -R -v docs/doc/* $PKG/usr/share/doc/kbd-${VERSION}
+popd
+
+checketc $PKG
+packageclean "$PKG"
+
+pushd "$PKG"
+	/usr/bin/lfspkg -n "$PKGNAME" -p "$VERSION" -d $SECTION -b $BUILD -s $SUFFIX -m
+popd
+
+case $DOWHAT in
+	up*)
+		lfspkg "^${PKGNAME}-[0-9][0-9]*" "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -u
+		;;
+	"install")
+		lfspkg "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -i
+		;;
+	"build")
+		echo "Just built"
+		;;
+	*)
+		echo "*** Unknown command ***"
+		exit 1
+esac
+
+rm -r "$PKG" "${TARNAME}-${VERSION}"

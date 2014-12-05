@@ -1,0 +1,57 @@
+#!/bin/bash
+
+. /usr/share/LFSPkg/LFSFunctions
+
+PKGNAME="Linuxheaders"
+TARNAME="linux"
+VERSION="3.17.2"
+BUILD=1
+SECTION="base"
+SUFFIX="pkg"
+TARBALL="${TARNAME}-${VERSION}.tar.xz"
+
+mkdir -p "/tmp" &>/dev/null||true
+if [ ! -d "$OUTPUT" ];then
+	OUTPUT=/tmp
+fi
+export OUTPUT
+PKG="${OUTPUT}/${PKGNAME}"
+
+DOWHAT=${1:-"build"}
+rm -rf "$PKG" || true
+mkdir -p "$PKG"
+tar -xvf "$TARBALL"
+
+pushd "${TARNAME}-${VERSION}"
+  sed -i 's/SIGTERM ERR/SIGTERM/' scripts/link-vmlinux.sh
+	make $MAKEFLAGS mrproper
+	make $MAKEFLAGS headers_check
+	make -j3 INSTALL_HDR_PATH=dest headers_install
+	mkdir -vp $PKG/usr/include
+	find dest/include \( -name .install -o -name ..install.cmd \) -delete
+	cp -rv dest/include/* $PKG/usr/include
+popd
+
+checketc $PKG
+packageclean "$PKG"
+
+pushd "$PKG"
+	/usr/bin/lfspkg -n "$PKGNAME" -p "$VERSION" -d $SECTION -b $BUILD -s $SUFFIX -m
+popd
+
+case $DOWHAT in
+	up*)
+		lfspkg "^${PKGNAME}-[0-9][0-9]*" "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -u
+		;;
+	"install")
+		lfspkg "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -i
+		;;
+	"build")
+		echo "Just built"
+		;;
+	*)
+		echo "*** Unknown command ***"
+		exit 1
+esac
+
+rm -r "$PKG" "${TARNAME}-${VERSION}"

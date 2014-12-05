@@ -1,0 +1,73 @@
+#!/bin/bash -e
+
+. /usr/share/LFSPkg/LFSFunctions
+
+PKGNAME="gcc"
+VERSION="4.9.2"
+BUILD=1
+SECTION="SYSTEM"
+SUFFIX="LFSPKG"
+TARNAME="$PKGNAME"
+TARBALL="${TARNAME}-${VERSION}.tar.bz2"
+
+mkdir -p "/tmp" &>/dev/null||true
+if [ ! -d "$OUTPUT" ];then
+	OUTPUT=/tmp
+fi
+export OUTPUT
+PKG="${OUTPUT}/${PKGNAME}"
+
+DOWHAT=${1:-"build"}
+rm -rf "$PKG" || true
+mkdir -p "$PKG"
+tar -xvf "$TARBALL"
+
+pushd "${TARNAME}-${VERSION}"
+	sed -i 's/if \((code.*))\)/if (\1 \&\& \!DEBUG_INSN_P (insn))/' gcc/sched-deps.c &&
+	#case $(uname -m) in
+	#	i?86) sed -i 's/^T_CFLAGS =$/& -fomit-frame-pointer/' gcc/Makefile.in ;;
+	#esac
+	patch -Np1 -i ../gcc-4.9.1-upstream_fixes-1.patch
+	# for disk ~2GB fix
+	mkdir -vp ../gcc-build
+	cd ../gcc-build
+	SED=sed ../${TARNAME}-${VERSION}/configure --prefix=/usr --enable-languages=c,c++ --disable-multilib --disable-bootstrap --with-system-zlib
+	make -j3 || exit
+	ulimit -s 32768
+	make -k check 2>&1 |tee /tmp/gcc.log
+	../gcc-${VERSION}/contrib/test_summary 2>&1|tee /tmp/test_gcc.log
+	make install DESTDIR="$PKG" || exit
+
+	mkdir -p $PKG/lib #$PKG/usr/share/gdb/auto-load/usr/lib
+	ln -sv ../usr/bin/cpp $PKG/lib
+	ln -sv gcc $PKG/usr/bin/cc
+	install -v -dm755 $PKG/usr/lib/bfd-plugins
+	# to verify
+	ln -sfv ../../libexec/gcc/$(gcc -dumpmachine)/4.9.1/liblto_plugin.so $PKG/usr/lib/bfd-plugins/
+	mkdir -pv $PKG/usr/share/gdb/auto-load/usr/lib
+	mv -v $PKG/usr/lib${LIBDIRSUFFIX}/*gdb.py $PKG/usr/share/gdb/auto-load/usr/lib
+popd
+
+checketc $PKG
+#packageclean "$PKG"
+
+pushd "$PKG"
+	/usr/bin/lfspkg -n "$PKGNAME" -p "$VERSION" -d $SECTION -b $BUILD -s $SUFFIX -m
+popd
+
+case $DOWHAT in
+	up*)
+		lfspkg "^${PKGNAME}-[0-9][0-9]*" "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -u
+		;;
+	"install")
+		lfspkg "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -i
+		;;
+	"build")
+		echo "Just built"
+		;;
+	*)
+		echo "*** Unknown command ***"
+		exit 1
+esac
+
+#rm -r "$PKG" "${TARNAME}-${VERSION}" gcc-build

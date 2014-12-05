@@ -1,0 +1,64 @@
+#!/bin/bash -e
+
+. /usr/share/LFSPkg/LFSFunctions
+
+PKGNAME="bzip2"
+VERSION="1.0.6"
+BUILD=1
+SECTION="SYSTEM"
+SUFFIX="LFSPKG"
+TARNAME="$PKGNAME"
+TARBALL="${TARNAME}-${VERSION}.tar.gz"
+
+mkdir -p "/tmp" &>/dev/null||true
+if [ ! -d "$OUTPUT" ];then
+	OUTPUT=/tmp
+fi
+export OUTPUT
+PKG="${OUTPUT}/${PKGNAME}"
+
+DOWHAT=${1:-"build"}
+rm -rf "$PKG" || true
+mkdir -p "$PKG"
+tar -xvf "$TARBALL"
+
+pushd "${TARNAME}-${VERSION}"
+	patch -Np1 -i ../${TARNAME}-${VERSION}-install_docs-1.patch
+	sed -i 's@\(ln -s -f \)$(PREFIX)/bin/@\1@' Makefile
+	sed -i "s@(PREFIX)/man@(PREFIX)/share/man@g" Makefile
+	make -j3 -f Makefile-libbz2_so || exit
+	make $MAKEFLAGS clean
+	make $MAKEFLAGS || exit
+	make $MAKEFLAGS install PREFIX="$PKG/usr" || exit
+	mkdir -p $PKG/bin $PKG/lib $PKG $PKG/usr/lib
+	cp -v bzip2-shared $PKG/bin/bzip2
+	cp -av libbz2.so* $PKG/lib
+	ln -sv ../../lib/libbz2.so.1.0 $PKG/usr/lib/libbz2.so
+	rm -v $PKG/usr/bin/{bunzip2,bzcat,bzip2}
+	ln -sv bzip2 $PKG/bin/bunzip2
+	ln -sv bzip2 $PKG/bin/bzcat
+popd
+
+checketc $PKG
+packageclean "$PKG"
+
+pushd "$PKG"
+	/usr/bin/lfspkg -n "$PKGNAME" -p "$VERSION" -d $SECTION -b $BUILD -s $SUFFIX -m
+popd
+
+case $DOWHAT in
+	up*)
+		lfspkg "^${PKGNAME}-[0-9][0-9]*" "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -u
+		;;
+	"install")
+		lfspkg "${OUTPUT}/${PKGNAME}-${VERSION}-${BUILD}_${SECTION}_${SUFFIX}.tar.gz" -i
+		;;
+	"build")
+		echo "Just built"
+		;;
+	*)
+		echo "*** Unknown command ***"
+		exit 1
+esac
+
+rm -r "$PKG" "${TARNAME}-${VERSION}"
